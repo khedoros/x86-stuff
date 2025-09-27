@@ -1,6 +1,9 @@
 #pragma once
 #include<cstdint>
 #include <functional>
+#include<string>
+
+#include "util.h"
 
 class cpu {
 public:
@@ -28,7 +31,28 @@ private:
 
     uint16_t flags = 2;
 
+    uint16_t zero = 0;
+
     uint8_t * mem;
+
+    const std::array<uint16_t*, 8> reg16{&ax, &cx, &dx, &bx, &sp, &bp, &si, &di};
+    // static const std::array<std::string, 8> reg16Names{"ax", "cx", "dx", "bx", "sp", "bp", "si", "di"};
+    static constexpr std::array<const char*, 8> reg16Names{"ax", "cx", "dx", "bx", "sp", "bp", "si", "di"};
+
+    const std::array<uint16_t*, 8> reg8{&ax, &cx, &dx, &bx, &ax, &cx, &dx, &bx};
+    // static constexpr std::array<std::string, 8> reg8Names{"al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"};
+    static constexpr std::array<const char*, 8> reg8Names{"al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"};
+
+    const std::array<uint16_t*, 8> modReg16_1{&bx, &bx, &bp, &bp, &si, &di, &bp, &bx};
+    // static const std::array<std::string, 8> modReg16Names_1{"bx", "bx", "bp", "bp", "si", "di", "bp", "bx"};
+    static constexpr std::array<const char*, 8> modReg16Names_1{"bx", "bx", "bp", "bp", "si", "di", "bp", "bx"};
+    const std::array<uint16_t*, 8> modReg16_2{&si, &di, &si, &di, &zero, &zero, &zero, &zero};
+    // static constexpr std::array<std::string, 8> modReg16Names_2{"si", "di", "si", "di", "", "", "", ""};
+    static constexpr std::array<const char*, 8> modReg16Names_2{"si", "di", "si", "di", "", "", "", ""};
+
+    const std::array<segment_t*, 4> seg{&es, &cs, &ss, &ds};
+    // static const std::array<std::string, 4> segNames{"es", "cs", "ss", "ds"};
+    static constexpr std::array<const char*, 4> segNames{"es", "cs", "ss", "ds"};
 
     enum flags {
         cf = 1,
@@ -44,6 +68,9 @@ private:
 
     uint16_t read16(size_t offset);
     void write16(size_t offset, uint16_t value);
+    uint64_t dosInterrupt();
+    uint16_t getModRm(uint8_t mod, uint8_t rm, const std::string& segName);
+
     /* status flags
     0x1      CF Carry
     0x2      Reserved; always 1?

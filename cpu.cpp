@@ -24,20 +24,6 @@ uint64_t cpu::step() {
     std::string segName = "ds";
     uint16_t offset = 0;
 
-    uint16_t zero = 0;
-    std::array<uint16_t*, 8> reg16{&ax, &cx, &dx, &bx, &sp, &bp, &si, &di};
-    const std::array<std::string, 8> reg16Names{"ax", "cx", "dx", "bx", "sp", "bp", "si", "di"};
-
-    std::array<uint16_t*, 8> reg8{&ax, &cx, &dx, &bx, &ax, &cx, &dx, &bx};
-    const std::array<std::string, 8> reg8Names{"al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"};
-
-    std::array<uint16_t*, 8> modReg16_1{&bx, &bx, &bp, &bp, &si, &di, &bp, &bx};
-    const std::array<std::string, 8> modReg16Names_1{"bx", "bx", "bp", "bp", "si", "di", "bp", "bx"};
-    std::array<uint16_t*, 8> modReg16_2{&si, &di, &si, &di, &zero, &zero, &zero, &zero};
-    const std::array<std::string, 8> modReg16Names_2{"si", "di", "si", "di", "", "", "", ""};
-
-    std::array<segment_t*, 4> seg{&es, &cs, &ss, &ds};
-    std::array<std::string, 4> segNames{"es", "cs", "ss", "ds"};
     while (true) {
         switch(op) {
             case 0x26: // ES sement override    00100
@@ -49,42 +35,27 @@ uint64_t cpu::step() {
                 ip++;
                 op = mem[getOffset(cs, ip)];
                 break;
-            case 0x89: // MOV
+            case 0x89: // MOV Ev, Gv
                 modrm = mem[getOffset(cs,ip+1)];
                 mod = modrm >> 6;
                 modreg = (modrm >> 3) & 7;
                 rm = modrm & 7;
                 ip+=2;
                 std::cout << "\tmov ";
-                switch(mod) {
-                    case 0: // r/m: 000 = [BX + SI]          001 = [BX + DI]          010 = [BP + SI]          011 = [BP + DI]          100 = [SI]          101 = [DI]          110 = [disp16]      111 = [BX]
-                        if(rm == 6) {
-                            offset = read16(getOffset(cs, ip));
-                            std::cout<<segName<<":"<<offset<<"h";
-                            ip+=2;
-                        }
-                        else {
-                            offset = *modReg16_1[rm] + *modReg16_2[rm];
-                            std::cout << segName << ":[" << modReg16Names_1[rm] << " + " << modReg16Names_2[rm] << "]";
-                        }
-                        break;
-                    case 1: //            [BX + SI + disp8]        [BX + DI + disp8]        [BP + SI + disp8]        [BP + DI + disp8]        [SI + disp8]        [DI + disp8]        [BP + disp8]        [BX + disp8]
-                        offset = mem[getOffset(cs, ip)];
-                        std::cout << segName << ":[" << modReg16Names_1[rm] << " + " << modReg16Names_2[rm] << " + " << offset << "]";
-                        offset += *modReg16_1[rm] + *modReg16_2[rm];
-                        ip++;
-                        break;
-                    case 2: //            [BX + SI + disp16]       [BX + DI + disp16]       [BP + SI + disp16]       [BP + DI + disp16]       [SI + disp16]       [DI + disp16]       [BP + disp16]       [BX + disp16]
-                        offset = read16(getOffset(cs, ip));
-                        std::cout << segName << ":[" << modReg16Names_1[rm] << " + " << modReg16Names_2[rm] << " + " << offset << "]";
-                        offset += *modReg16_1[rm] + *modReg16_2[rm];
-                        ip+=2;
-                        break;
-                    case 3: // r/m TODO: Figure this out
-                        return 0;
-                }
+                offset = getModRm(mod, rm, segName);
                 write16(getOffset(segment, offset), *reg16[modreg]);
                  std::cout << ", " << reg16Names[modreg] << "\n";
+                return 1;
+            case 0x8b: // MOV Gv, Ev
+                modrm = mem[getOffset(cs,ip+1)];
+                mod = modrm >> 6;
+                modreg = (modrm >> 3) & 7;
+                rm = modrm & 7;
+                ip+=2;
+                std::cout << "\t mov " << reg16Names[modreg] << ", ";
+                offset = getModRm(mod, rm, segName);
+                *reg16[modreg] = read16(getOffset(segment, offset));
+                std::cout << '\n';
                 return 1;
             case 0xb0: // al
             case 0xb1: // cl
@@ -119,6 +90,16 @@ uint64_t cpu::step() {
                 std::cout << "\tmov " << reg16Names[op&0x07] << ", " << offset << "h\n";
                 ip += 3;
                 return 1;
+            case 0xcd: // int 01h
+                std::cout << "ax: " << ax << "op1: " << uint16_t(op1) << '\t';
+                switch(op1) {
+                    case 0x21: // DOS system interrupts! fun!
+                        ip += 2;
+                        return dosInterrupt();
+                    default:
+                        std::cout << '\n';
+                        return 0;
+                }
             default:
                 std::cout << '\n';
                 return 0;
@@ -135,4 +116,46 @@ void cpu::write16(size_t offset, uint16_t value) {
     uint8_t byte2 = value & 0xff;
     mem[offset] = byte2;
     mem[offset + 1] = byte1;
+}
+
+uint64_t cpu::dosInterrupt() {
+    switch (ax >> 8) {
+        case 0x30: // Get DOS version
+            ax = 0x0300; // return dos 3.00
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+uint16_t cpu::getModRm(uint8_t mod, uint8_t rm, const std::string& segName) {
+    uint16_t offset;
+    switch(mod) {
+        case 0: // r/m: 000 = [BX + SI]          001 = [BX + DI]          010 = [BP + SI]          011 = [BP + DI]          100 = [SI]          101 = [DI]          110 = [disp16]      111 = [BX]
+            if(rm == 6) {
+                offset = read16(getOffset(cs, ip));
+                std::cout<<segName<<":"<<offset<<"h";
+                ip+=2;
+            }
+            else {
+                offset = *modReg16_1[rm] + *modReg16_2[rm];
+                std::cout << segName << ":[" << modReg16Names_1[rm] << " + " << modReg16Names_2[rm] << "]";
+            }
+            break;
+        case 1: //            [BX + SI + disp8]        [BX + DI + disp8]        [BP + SI + disp8]        [BP + DI + disp8]        [SI + disp8]        [DI + disp8]        [BP + disp8]        [BX + disp8]
+            offset = mem[getOffset(cs, ip)];
+            std::cout << segName << ":[" << modReg16Names_1[rm] << " + " << modReg16Names_2[rm] << " + " << offset << "]";
+            offset += *modReg16_1[rm] + *modReg16_2[rm];
+            ip++;
+            break;
+        case 2: //            [BX + SI + disp16]       [BX + DI + disp16]       [BP + SI + disp16]       [BP + DI + disp16]       [SI + disp16]       [DI + disp16]       [BP + disp16]       [BX + disp16]
+            offset = read16(getOffset(cs, ip));
+            std::cout << segName << ":[" << modReg16Names_1[rm] << " + " << modReg16Names_2[rm] << " + " << offset << "]";
+            offset += *modReg16_1[rm] + *modReg16_2[rm];
+            ip+=2;
+            break;
+        case 3: // r/m TODO: Figure this out
+            return 0;
+    }
+    return offset;
 }
